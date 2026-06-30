@@ -3,93 +3,315 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trend Foto Kita Blur (Offline Audio)</title>
+    <title>Trend Foto Kita Blur - Rekam Otomatis</title>
     
-    <!-- Pustaka MediaPipe Google untuk Deteksi Tangan -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     
-    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Custom CSS -->
-    <link rel="stylesheet" href="css/style.css">
-</head>
-<body class="h-screen w-full flex flex-col md:flex-row p-4 gap-4 box-border bg-slate-950 text-slate-50 overflow-hidden">
-
-    <!-- BAGIAN KIRI: Preview Kamera Besar -->
-    <div class="w-full md:w-2/3 lg:w-3/4 bg-black rounded-2xl relative flex items-center justify-center overflow-hidden border-4 border-slate-800 shadow-2xl h-full">
+    <style>
+        body {
+            background-color: #020617;
+            color: #f8fafc;
+            overflow-x: hidden;
+        }
         
-        <!-- Status Loading -->
-        <div id="status_message" class="absolute z-10 text-white font-semibold text-xl animate-pulse bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700">
+        /* Mirror default & transisi */
+        #output_canvas {
+            transform: scaleX(-1);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            /* object-cover mencegah gepeng di HP */
+            object-fit: cover; 
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Animasi Countdown */
+        @keyframes popAnimation {
+            0% { transform: scale(0.4); opacity: 0; }
+            50% { transform: scale(1.15); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pop { animation: popAnimation 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+        
+        /* Indikator Perekaman (Blinking Red Dot) */
+        @keyframes blinker {
+            50% { opacity: 0; }
+        }
+        .recording-dot {
+            animation: blinker 1s linear infinite;
+        }
+    </style>
+</head>
+<body class="min-h-screen w-full flex flex-col md:flex-row p-4 gap-4 box-border">
+
+    <div class="w-full md:w-2/3 lg:w-3/4 bg-black rounded-2xl relative flex items-center justify-center overflow-hidden border-4 border-slate-800 shadow-2xl min-h-[60vh] md:min-h-full">
+        
+        <div id="status_message" class="absolute z-10 text-white font-semibold text-lg md:text-xl animate-pulse bg-slate-900/80 px-6 py-3 rounded-xl border border-slate-700 text-center">
             Memuat Kamera & AI...
         </div>
         
-        <!-- Overlay Hitung Mundur -->
         <div id="countdown_overlay" class="absolute inset-0 bg-black/70 z-20 hidden flex flex-col items-center justify-center backdrop-blur-md">
-            <span id="countdown_text" class="text-[15rem] font-extrabold text-pink-500 drop-shadow-[0_0_30px_rgba(236,72,153,0.6)]">3</span>
-            <p class="text-2xl text-slate-200 mt-4 font-medium tracking-wide">Bersiaplah di Depan Kamera!</p>
+            <span id="countdown_text" class="text-[10rem] md:text-[15rem] font-extrabold text-pink-500 drop-shadow-[0_0_30px_rgba(236,72,153,0.6)]">3</span>
+            <p class="text-xl md:text-2xl text-slate-200 mt-4 font-medium tracking-wide">Bersiaplah!</p>
         </div>
 
-        <!-- Video Tersembunyi (Input Stream) -->
+        <div id="recording_indicator" class="absolute top-6 right-6 z-10 hidden bg-black/60 px-4 py-2 rounded-full border border-red-500/50 flex items-center gap-2 backdrop-blur-sm">
+            <div class="w-3 h-3 bg-red-500 rounded-full recording-dot"></div>
+            <span class="text-red-400 font-bold text-sm tracking-widest">REC</span>
+        </div>
+
         <video id="input_video" class="hidden" autoplay playsinline></video>
-        
-        <!-- Canvas Utama -->
-        <canvas id="output_canvas" width="1280" height="720" class="w-full h-full object-cover hidden"></canvas>
+        <canvas id="output_canvas" class="hidden"></canvas>
     </div>
 
-    <!-- BAGIAN KANAN: Panel Kontrol & Teks -->
-    <div class="w-full md:w-1/3 lg:w-1/4 bg-slate-900 p-6 rounded-2xl shadow-2xl border border-slate-800 flex flex-col justify-between h-full overflow-y-auto">
+    <div class="w-full md:w-1/3 lg:w-1/4 bg-slate-900 p-6 rounded-2xl shadow-2xl border border-slate-800 flex flex-col justify-between h-auto md:h-full overflow-y-auto">
         
         <div>
-            <!-- Jam Digital -->
-            <div class="flex justify-end mb-6">
-                <div id="clock_display" class="bg-slate-950 px-4 py-2 rounded-xl text-cyan-400 font-mono text-xl border border-slate-800 shadow-inner tracking-wider">
-                    00:00:00
-                </div>
-            </div>
-
-            <!-- Informasi Project -->
             <h1 class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-rose-400 mb-4 leading-tight">✨ Trend Foto<br>Kita Blur</h1>
             <p class="text-slate-400 mb-6 text-sm leading-relaxed">
-                Angkat jari <strong class="text-pink-400">Telunjuk & Tengah (Pose V ✌️)</strong> ke arah kamera untuk mengaktifkan efek blur seketika secara real-time.
+                Angkat <strong class="text-pink-400">Jari Telunjuk & Tengah (✌️)</strong> untuk nge-blur.
             </p>
             
-            <!-- Pengaturan -->
             <div class="bg-slate-800/40 p-4 rounded-xl mb-6 border border-slate-800/80">
-                <h3 class="text-slate-200 font-semibold mb-3 text-sm tracking-wide uppercase">Pengaturan Kamera:</h3>
-                
-                <label class="flex items-center cursor-pointer group select-none">
+                <label class="flex items-center cursor-pointer group select-none mb-4">
                     <div class="relative">
                         <input type="checkbox" id="mirror_toggle" class="sr-only" checked>
                         <div class="block bg-slate-700 w-10 h-6 rounded-full transition-colors group-hover:bg-slate-600"></div>
                         <div id="mirror_dot" class="dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform transform translate-x-4"></div>
                     </div>
-                    <div class="ml-3 text-slate-300 font-medium text-sm">Mode Cermin (Mirror)</div>
+                    <div class="ml-3 text-slate-300 font-medium text-sm">Cermin Kamera</div>
+                </label>
+
+                <label class="flex items-center cursor-pointer group select-none">
+                    <div class="relative">
+                        <input type="checkbox" id="record_toggle" class="sr-only" checked>
+                        <div class="block bg-pink-900/50 w-10 h-6 rounded-full transition-colors border border-pink-700/50"></div>
+                        <div id="record_dot" class="dot absolute left-1 top-1 bg-pink-500 w-4 h-4 rounded-full transition-transform transform translate-x-4 shadow-[0_0_10px_#ec4899]"></div>
+                    </div>
+                    <div class="ml-3 text-slate-300 font-medium text-sm">Simpan Video (Auto-Save)</div>
                 </label>
             </div>
         </div>
 
-        <!-- Kontrol Audio Lokal Audio MP3 -->
         <div>
-            <!-- Tag Audio HTML5 untuk file lokal -->
             <audio id="bg_music" preload="auto">
                 <source src="lagu.mp3" type="audio/mpeg">
             </audio>
             
-            <p id="audio_status" class="text-xs text-slate-500 mb-3 text-center tracking-wide font-medium">Memeriksa sistem kamera...</p>
-
             <button id="start_btn" disabled class="w-full bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold py-4 px-6 rounded-xl shadow-lg transition-all transform hover:scale-[1.02] active:scale-95 text-lg flex items-center justify-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Mulai Trend
+                Mulai & Rekam 🎥
             </button>
         </div>
     </div>
 
-    <!-- Memuat Logic Utama -->
-    <script src="js/script.js"></script>
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const startBtn = document.getElementById('start_btn');
+        const statusMessage = document.getElementById('status_message');
+        const mirrorToggle = document.getElementById('mirror_toggle');
+        const recordToggle = document.getElementById('record_toggle');
+        const mirrorDot = document.getElementById('mirror_dot');
+        const recordDot = document.getElementById('record_dot');
+        const countdownOverlay = document.getElementById('countdown_overlay');
+        const countdownText = document.getElementById('countdown_text');
+        const recordingIndicator = document.getElementById('recording_indicator');
+        const bgMusic = document.getElementById('bg_music');
+
+        let isModelLoaded = false;
+        let isTrendActive = false;
+        
+        // Anti-Flicker / Smoothing Variables
+        let blurConfidence = 0;
+        const BLUR_THRESHOLD = 3; 
+        const MAX_CONFIDENCE = 10;
+
+        // Recording Variables
+        let mediaRecorder;
+        let recordedChunks = [];
+
+        // --- PENGATURAN UI ---
+        mirrorToggle.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                canvasElement.style.transform = 'scaleX(-1)';
+                mirrorDot.classList.add('translate-x-4');
+            } else {
+                canvasElement.style.transform = 'scaleX(1)';
+                mirrorDot.classList.remove('translate-x-4');
+            }
+        });
+
+        recordToggle.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                recordDot.classList.add('translate-x-4', 'bg-pink-500');
+                recordDot.classList.remove('bg-slate-400');
+            } else {
+                recordDot.classList.remove('translate-x-4', 'bg-pink-500');
+                recordDot.classList.add('bg-slate-400');
+            }
+        });
+
+        // --- SISTEM REKAM (MEDIA RECORDER) ---
+        function startRecording() {
+            if (!recordToggle.checked) return;
+
+            recordedChunks = [];
+            // Tangkap aliran video dari canvas (30 FPS)
+            const stream = canvasElement.captureStream(30);
+            
+            try {
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+            } catch (e) {
+                // Fallback jika browser tidak dukung webm biasa
+                mediaRecorder = new MediaRecorder(stream); 
+            }
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Trend-Blur-${new Date().getTime()}.webm`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                recordingIndicator.classList.add('hidden');
+            };
+
+            mediaRecorder.start();
+            recordingIndicator.classList.remove('hidden');
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+        }
+
+        // Ketika Audio Selesai / Berhenti
+        bgMusic.addEventListener('ended', () => {
+            isTrendActive = false;
+            stopRecording(); // Otomatis stop & unduh video
+            
+            startBtn.disabled = false;
+            startBtn.innerHTML = `Ulangi Trend 🎥`;
+            startBtn.className = startBtn.className.replace('from-green-600 to-emerald-600', 'from-pink-600 to-rose-600');
+            startBtn.className = startBtn.className.replace('hover:from-green-500 hover:to-emerald-500', 'hover:from-pink-500 hover:to-rose-500');
+        });
+
+        // --- AI MEDIAPIPE (DETEKSI JARI) ---
+        function onResults(results) {
+            if (!isModelLoaded) {
+                isModelLoaded = true;
+                statusMessage.classList.add('hidden');
+                canvasElement.classList.remove('hidden');
+                startBtn.disabled = false;
+            }
+
+            // PERBAIKAN: Set Resolusi Canvas dinamis sesuai kamera HP/Laptop (Anti-Gepeng)
+            if (canvasElement.width !== results.image.width || canvasElement.height !== results.image.height) {
+                canvasElement.width = results.image.width;
+                canvasElement.height = results.image.height;
+            }
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            let vSignDetected = false;
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                for (const landmarks of results.multiHandLandmarks) {
+                    // PERBAIKAN: Menggunakan patokan sendi pangkal terbawah (MCP - indeks 5, 9, 13, 17) agar deteksi jauh lebih presisi
+                    const indexUp = landmarks[8].y < landmarks[5].y;
+                    const middleUp = landmarks[12].y < landmarks[9].y;
+                    const ringDown = landmarks[16].y > landmarks[13].y;
+                    const pinkyDown = landmarks[20].y > landmarks[17].y;
+                    
+                    if (indexUp && middleUp && ringDown && pinkyDown) {
+                        vSignDetected = true;
+                    }
+                }
+            }
+
+            // PERBAIKAN: Sistem Anti-Flicker (Smoothing)
+            if (vSignDetected) {
+                blurConfidence = Math.min(MAX_CONFIDENCE, blurConfidence + 3); // Cepat naik
+            } else {
+                blurConfidence = Math.max(0, blurConfidence - 1); // Turun perlahan (tidak langsung hilang)
+            }
+
+            // Terapkan blur jika confidence melewati ambang batas
+            if (isTrendActive && blurConfidence > BLUR_THRESHOLD) {
+                canvasCtx.filter = 'blur(35px) brightness(0.8) contrast(1.1)';
+            } else {
+                canvasCtx.filter = 'none';
+            }
+
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.restore();
+        }
+
+        // Inisialisasi MediaPipe
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.65, // Diturunkan sedikit agar lebih peka di kamera buram
+            minTrackingConfidence: 0.6
+        });
+        hands.onResults(onResults);
+
+        // Inisialisasi Kamera
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: { ideal: 1280 }, // Gunakan ideal agar HP bisa menyesuaikan ke rasio potret
+            height: { ideal: 720 },
+            facingMode: "user" // Paksa kamera depan untuk HP
+        });
+        camera.start();
+
+        // --- TOMBOL MULAI & COUNTDOWN ---
+        startBtn.addEventListener('click', () => {
+            startBtn.disabled = true;
+            countdownOverlay.classList.remove('hidden');
+            
+            let count = 3;
+            countdownText.textContent = count;
+            countdownText.classList.remove('animate-pop');
+            void countdownText.offsetWidth;
+            countdownText.classList.add('animate-pop');
+
+            const countdownInterval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    countdownText.textContent = count;
+                    countdownText.classList.remove('animate-pop');
+                    void countdownText.offsetWidth;
+                    countdownText.classList.add('animate-pop');
+                } else {
+                    clearInterval(countdownInterval);
+                    countdownOverlay.classList.add('hidden');
+                    
+                    // Eksekusi Trend
+                    isTrendActive = true;
+                    bgMusic.currentTime = 0;
+                    bgMusic.play();
+                    
+                    startRecording();
+                    
+                    startBtn.textContent = "Beraksi! 🎵";
+                    startBtn.className = startBtn.className.replace('from-pink-600 to-rose-600', 'from-green-600 to-emerald-600');
+                    startBtn.className = startBtn.className.replace('hover:from-pink-500 hover:to-rose-500', 'hover:from-green-500 hover:to-emerald-500');
+                }
+            }, 1000);
+        });
+    </script>
 </body>
 </html>
